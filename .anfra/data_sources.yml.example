@@ -1,0 +1,16 @@
+# Copy to .anfra/data_sources.yml (git-ignored) and fill in, or run scripts/setup.sh
+# which writes it for you.
+#
+# Supabase: use the Session pooler host (IPv4). On the pooler, the user is
+# <role>.<project-ref>, e.g. anfra_reader.abcdefghijklmnop
+data_sources:
+  supabase:
+    type: postgresql
+    connection:
+      host: aws-0-<region>.pooler.supabase.com
+      port: 5432
+      user: anfra_reader.<project-ref>
+      password: <password>
+      dbname: postgres
+    settings:
+      require_ssl: true

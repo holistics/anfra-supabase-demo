@@ -1,0 +1,576 @@
+<!doctype html>
+<!--
+  Shop overview: a Data App on the `shop` dataset, whose data lives in Supabase Postgres.
+
+  - Design layer: Basecoat + anfra tokens (the <style> block), the markup, chartTheme().
+  - SDK wiring: the last <script>, everything that touches `app`, a query, a filter or a drill.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shop Overview (Supabase)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css"
+    integrity="sha384-ZTIcl2CmY0wyM9ANOhomBco7rEUIlWztf6lGcLKCocKUrIgGCsfisuZyE+hadW8K" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css"
+    integrity="sha384-XWKdrxzE2X33lI8Q03C9fIbqdLWV11whVNycR2/3bMNJY73EEQOa7rmN+SeiSCor" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/all.min.js"
+    integrity="sha384-rD2ZCuReXV7nIneJcn1lsTn6yOv87YARLQyUsemVAxrYYHdy5hcAW8XZEQxx87Dj" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"
+    integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --background: oklch(0.955 0.007 88.6);
+      --foreground: oklch(0.201 0.022 301.1);
+      --card: oklch(1 0 0);
+      --card-foreground: oklch(0.201 0.022 301.1);
+      --popover: oklch(1 0 0);
+      --popover-foreground: oklch(0.201 0.022 301.1);
+      --primary: oklch(0.565 0.194 300.3);
+      --primary-foreground: oklch(1 0 0);
+      --secondary: oklch(0.973 0.005 95.1);
+      --secondary-foreground: oklch(0.392 0.021 304.3);
+      --muted: oklch(0.973 0.005 95.1);
+      --muted-foreground: oklch(0.485 0.022 306.3);
+      --accent: oklch(0.946 0.027 304.8);
+      --accent-foreground: oklch(0.201 0.022 301.1);
+      --border: oklch(0.201 0.022 301.1 / 0.12);
+      --input: oklch(0.201 0.022 301.1 / 0.22);
+      --ring: oklch(0.565 0.194 300.3);
+      --radius: 0.625rem;
+      --supabase: #3ecf8e;
+      --chart-text: #5b5560;
+      --chart-grid: #e7e4e0;
+      --chart-cat-1: #7c4dce; --chart-cat-2: #1f9aa6; --chart-cat-3: #d9972b; --chart-cat-4: #d4527a;
+      --chart-cat-5: #3d7bd9; --chart-cat-6: #3f9d6b; --chart-cat-7: #dd7a3c; --chart-cat-8: #7d7785;
+    }
+    .dark {
+      --background: oklch(0.17 0.015 301);
+      --foreground: oklch(0.961 0.007 304.2);
+      --card: oklch(0.215 0.017 301);
+      --card-foreground: oklch(0.961 0.007 304.2);
+      --popover: oklch(0.245 0.018 301);
+      --popover-foreground: oklch(0.961 0.007 304.2);
+      --primary: oklch(0.7 0.16 300);
+      --primary-foreground: oklch(0.17 0.015 301);
+      --secondary: oklch(0.26 0.018 301);
+      --secondary-foreground: oklch(0.86 0.01 304);
+      --muted: oklch(0.26 0.018 301);
+      --muted-foreground: oklch(0.72 0.02 304);
+      --accent: oklch(0.32 0.05 301);
+      --accent-foreground: oklch(0.961 0.007 304.2);
+      --border: oklch(1 0 0 / 0.1);
+      --input: oklch(1 0 0 / 0.16);
+      --ring: oklch(0.7 0.16 300);
+      --chart-text: #b4aebb;
+      --chart-grid: #38333d;
+      --chart-cat-1: #a98af0; --chart-cat-2: #4cc3cf; --chart-cat-3: #f0b252; --chart-cat-4: #f07ea0;
+      --chart-cat-5: #7aa8f2; --chart-cat-6: #6cc496; --chart-cat-7: #f59a63; --chart-cat-8: #a39dab;
+    }
+
+    body {
+      font: 14px/20px "Inter Variable", Inter, system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+      background: var(--background); color: var(--foreground);
+      margin: 0; padding: 24px; max-width: 1280px; margin-inline: auto;
+    }
+    h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0; }
+    .caption { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+    .header { margin-bottom: 16px; display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+    .header .spacer { flex: 1; }
+    .source { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px;
+              padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); }
+    .source .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--supabase); }
+    .btn, .input { height: 32px; font-size: 14px; }
+    .card { border-radius: 14px; box-shadow: none; position: relative; }
+    .card > header { padding-bottom: 0; }
+    .card h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
+
+    .card.filters { flex-direction: row; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+                    justify-content: flex-start; padding: 12px 16px; margin-bottom: 16px; overflow: visible; }
+    .field-group { display: flex; flex-direction: column; gap: 8px; }
+    .field-group > label { font-weight: 500; }
+    .date-range { display: flex; align-items: center; gap: 8px; }
+    .date-range .input { width: 9.5rem; }
+    .presets { display: flex; gap: 4px; }
+    .spacer { flex: 1; }
+
+    .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 16px; }
+    @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+    .kpi { padding: 16px; gap: 4px; }
+    .kpi .value { font-size: 20px; line-height: 28px; font-weight: 600; }
+    .kpi.loading .value { color: var(--muted-foreground); }
+
+    .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .grid.even { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 900px) { .grid, .grid.even { grid-template-columns: 1fr; } }
+    .chart { height: 300px; }
+    .button-group .btn[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+    .status { position: absolute; inset: 56px 16px 16px; display: none; align-items: center;
+              justify-content: center; background: color-mix(in oklab, var(--card) 85%, transparent); }
+    .status.visible { display: flex; }
+    .status > * { width: 100%; }
+    .status .skeleton { height: 100%; border-radius: 10px; }
+    .status .empty { text-align: center; color: var(--muted-foreground); }
+
+    table.data { width: 100%; border-collapse: collapse; }
+    table.data th, table.data td { padding: 8px; border-bottom: 1px solid var(--border); text-align: left; }
+    table.data th { font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+    table.data td.num, table.data th.num { text-align: right; }
+    .table-wrap { min-height: 120px; }
+    .foot { display: flex; justify-content: center; padding-top: 12px; }
+    .notes { margin-top: 8px; }
+    .notes li { margin: 2px 0; }
+  </style>
+</head>
+<body>
+  <main data-anfra-container="page" data-anfra-label="Shop overview">
+  <div class="header">
+    <div>
+      <h1>Shop overview</h1>
+      <div class="caption">Sales, customers and margin for the sample store.</div>
+    </div>
+    <div class="spacer"></div>
+    <button id="clear-selection" class="btn" data-variant="outline" type="button" hidden data-anfra-render="skip">Clear chart selection</button>
+    <span class="source"><span class="dot"></span>Live from Supabase Postgres · <code>ecommerce</code> schema</span>
+  </div>
+
+  <div class="card filters" data-anfra-container="controls" data-anfra-label="Controls">
+    <div class="field-group" data-anfra-block="category-picker" data-anfra-label="Category" data-anfra-control="category">
+      <label for="category-input">Category</label>
+      <div id="category-combobox" class="combobox" style="width: 220px" data-auto-highlight="true">
+        <input id="category-input" type="text" role="combobox" placeholder="All categories" autocomplete="off"
+               autocorrect="off" spellcheck="false" aria-autocomplete="list" aria-expanded="false"
+               aria-controls="category-listbox">
+        <div id="category-popover" data-popover aria-hidden="true">
+          <div role="listbox" id="category-listbox" aria-orientation="vertical" aria-multiselectable="true"
+               data-empty="No categories found."></div>
+        </div>
+        <input type="hidden" name="category" value="[]">
+      </div>
+    </div>
+
+    <div class="field-group" data-anfra-block="country-picker" data-anfra-label="Country" data-anfra-control="country">
+      <label for="country-input">Customer country</label>
+      <div id="country-combobox" class="combobox" style="width: 220px" data-auto-highlight="true">
+        <input id="country-input" type="text" role="combobox" placeholder="All countries" autocomplete="off"
+               autocorrect="off" spellcheck="false" aria-autocomplete="list" aria-expanded="false"
+               aria-controls="country-listbox">
+        <div id="country-popover" data-popover aria-hidden="true">
+          <div role="listbox" id="country-listbox" aria-orientation="vertical" aria-multiselectable="true"
+               data-empty="No countries found."></div>
+        </div>
+        <input type="hidden" name="country" value="[]">
+      </div>
+    </div>
+
+    <div class="field-group" data-anfra-block="date-picker" data-anfra-label="Order date" data-anfra-control="dates">
+      <label for="date-from">Order date</label>
+      <div class="date-range">
+        <input id="date-from" class="input" type="date" aria-label="From">
+        <span class="caption">to</span>
+        <input id="date-to" class="input" type="date" aria-label="To">
+      </div>
+    </div>
+
+    <div class="field-group" data-anfra-block="date-presets" data-anfra-label="Quick range">
+      <span class="caption">Quick range</span>
+      <div class="presets">
+        <button class="btn" data-variant="outline" type="button" data-range="2025">2025</button>
+        <button class="btn" data-variant="outline" type="button" data-range="2026">2026</button>
+        <button class="btn" data-variant="ghost" type="button" data-range="all">All</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="kpis" data-anfra-container="kpis" data-anfra-label="KPIs">
+    <div class="card kpi" data-anfra-block="kpi-revenue" data-anfra-label="Net revenue" data-anfra-query="kpis">
+      <span class="caption">Net revenue</span><span class="value" data-kpi="net_revenue">–</span>
+    </div>
+    <div class="card kpi" data-anfra-block="kpi-orders" data-anfra-label="Orders" data-anfra-query="kpis">
+      <span class="caption">Orders</span><span class="value" data-kpi="total_orders">–</span>
+    </div>
+    <div class="card kpi" data-anfra-block="kpi-aov" data-anfra-label="AOV" data-anfra-query="kpis">
+      <span class="caption">Avg order value</span><span class="value" data-kpi="aov">–</span>
+    </div>
+    <div class="card kpi" data-anfra-block="kpi-buyers" data-anfra-label="Buyers" data-anfra-query="kpis">
+      <span class="caption">Buyers</span><span class="value" data-kpi="buyers">–</span>
+    </div>
+    <div class="card kpi" data-anfra-block="kpi-margin" data-anfra-label="Gross margin" data-anfra-query="kpis">
+      <span class="caption">Gross margin</span><span class="value" data-kpi="gross_margin">–</span>
+    </div>
+  </div>
+
+  <div class="grid" data-anfra-container="row-1" data-anfra-label="Trend and categories">
+    <section class="card" data-anfra-block="trend" data-anfra-label="Revenue over time">
+      <header class="card-head">
+        <h2>Net revenue &amp; gross profit over time</h2>
+        <div class="button-group" role="group" aria-label="Date grain" data-anfra-control="grain">
+          <button class="btn" data-variant="outline" type="button" data-grain="week">Week</button>
+          <button class="btn" data-variant="secondary" type="button" data-grain="month" aria-pressed="true">Month</button>
+          <button class="btn" data-variant="outline" type="button" data-grain="quarter">Quarter</button>
+        </div>
+      </header>
+      <section><div id="trend" class="chart" data-anfra-query="trend"></div></section>
+      <div id="trend-status" class="status"></div>
+    </section>
+    <section class="card" data-anfra-block="by-category" data-anfra-label="Revenue by category">
+      <header><h2>Net revenue by category</h2><p class="caption">Click a bar to filter the page.</p></header>
+      <section><div id="by-category" class="chart" data-anfra-query="byCategory"></div></section>
+      <div id="by-category-status" class="status"></div>
+    </section>
+  </div>
+
+  <div class="grid even" data-anfra-container="row-2" data-anfra-label="Customers and products">
+    <section class="card" data-anfra-block="by-channel" data-anfra-label="Revenue by acquisition channel">
+      <header><h2>Net revenue by acquisition channel</h2><p class="caption">How the buying customer first found the shop. Click to filter.</p></header>
+      <section><div id="by-channel" class="chart" data-anfra-query="byChannel"></div></section>
+      <div id="by-channel-status" class="status"></div>
+    </section>
+    <section class="card" data-anfra-block="top-products" data-anfra-label="Top products">
+      <header><h2>Top products</h2><p class="caption">By net revenue.</p></header>
+      <section class="table-wrap" data-anfra-query="topProducts">
+        <table class="data">
+          <thead><tr><th>Product</th><th>Category</th><th class="num">Units</th><th class="num">Net revenue</th><th class="num">Margin</th></tr></thead>
+          <tbody id="top-products-body"></tbody>
+        </table>
+        <div class="foot"><button id="more-products" class="btn" data-variant="outline" type="button" hidden data-anfra-render="skip">Show more</button></div>
+      </section>
+      <div id="top-products-status" class="status"></div>
+    </section>
+  </div>
+
+  <section class="card" data-anfra-block="definitions" data-anfra-label="Definitions">
+    <header><h2>Definitions</h2></header>
+    <section>
+      <ul class="caption notes">
+        <li><b>Net revenue</b>: quantity × (unit price − discount), for <code>completed</code> and <code>shipped</code> orders only.</li>
+        <li><b>Orders</b>: every order in the period, any status. <b>AOV</b>: net revenue ÷ completed and shipped orders.</li>
+        <li><b>Buyers</b>: distinct customers with an order. <b>Gross margin</b>: (net revenue − cost of goods) ÷ net revenue.</li>
+        <li>Dates are order dates in UTC. Numbers are rounded for display only.</li>
+      </ul>
+    </section>
+  </section>
+  </main>
+
+  <script>
+    // ---- Design layer ----
+    const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyTheme = () => document.documentElement.classList.toggle('dark', darkQuery.matches);
+    applyTheme();
+
+    function chartTheme () {
+      const css = getComputedStyle(document.documentElement);
+      const get = (name) => css.getPropertyValue(name).trim();
+      return { text: get('--chart-text'), grid: get('--chart-grid'), cat: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => get(`--chart-cat-${n}`)) };
+    }
+
+    // ---- SDK wiring ----
+    const DATASET = 'shop';
+    const app = Anfra.createApp({ title: 'Shop Overview' });
+
+    const kpis = app.createQuery('kpis', {
+      dataset: DATASET,
+      aql: `explore {
+        measures {
+          net_revenue: net_revenue,
+          total_orders: total_orders,
+          aov: aov,
+          buyers: buyers,
+          gross_margin: gross_margin
+        }
+      }`,
+    });
+
+    const trend = app.createQuery('trend', {
+      dataset: DATASET,
+      aql: `explore {
+        dimensions { period: orders.created_at | month() }
+        measures { net_revenue: net_revenue, gross_profit: gross_profit }
+        sorts { period asc }
+      }`,
+    });
+
+    const byCategory = app.createQuery('byCategory', {
+      dataset: DATASET,
+      aql: `explore {
+        dimensions { category: products.category }
+        measures { net_revenue: net_revenue }
+        sorts { net_revenue desc }
+      }`,
+    });
+
+    const byChannel = app.createQuery('byChannel', {
+      dataset: DATASET,
+      aql: `explore {
+        dimensions { channel: customers.acquisition_channel }
+        measures { net_revenue: net_revenue, buyers: buyers }
+        sorts { net_revenue desc }
+      }`,
+    });
+
+    const topProducts = app.createQuery('topProducts', {
+      dataset: DATASET,
+      pageSize: 8,
+      aql: `explore {
+        dimensions { product: products.name, category: products.category }
+        measures { units: units_sold, net_revenue: net_revenue, margin: gross_margin }
+        sorts { net_revenue desc }
+      }`,
+    });
+
+    const allQueries = [kpis, trend, byCategory, byChannel, topProducts];
+
+    const category = app.createFilter('category', { dataset: DATASET, field: 'products.category', label: 'Category' });
+    const country = app.createFilter('country', { dataset: DATASET, field: 'customers.country', label: 'Country' });
+    const dates = app.createFilter('dates', { dataset: DATASET, field: 'orders.created_at', label: 'Order date' });
+    const grain = app.createDateDrill('grain', { default: 'month' });
+
+    for (const q of allQueries) {
+      app.mapControl(category, q, { field: 'products.category' });
+      app.mapControl(country, q, { field: 'customers.country' });
+      app.mapControl(dates, q, { field: 'orders.created_at' });
+    }
+    app.mapControl(grain, trend, { field: 'orders.created_at' });
+
+    for (const source of [byCategory, byChannel]) {
+      for (const target of allQueries) {
+        if (target !== source) app.mapCrossFilter(source, target);
+      }
+    }
+
+    const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+    const money2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+    const moneyShort = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 });
+    const count = new Intl.NumberFormat('en-US');
+    const pct = new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const fmt = (f, v) => (v === null || v === undefined ? '–' : f.format(v));
+
+    const trendChart = echarts.init(document.getElementById('trend'));
+    const categoryChart = echarts.init(document.getElementById('by-category'));
+    const channelChart = echarts.init(document.getElementById('by-channel'));
+    const logged = new Set();
+    const lastResult = new Map();
+
+    function renderStatus (query, elementId, emptyText) {
+      const el = document.getElementById(elementId);
+      el.replaceChildren();
+      if (query.state === 'executing' && !query.result) {
+        el.append(Object.assign(document.createElement('div'), { className: 'skeleton' }));
+      } else if (query.state === 'error') {
+        const alert = Object.assign(document.createElement('div'), { className: 'alert' });
+        alert.dataset.variant = 'destructive';
+        const title = document.createElement('h2');
+        title.textContent = "Couldn't load this";
+        const detail = document.createElement('section');
+        detail.textContent = query.error.message;
+        alert.append(title, detail);
+        el.append(alert);
+      } else if (query.state === 'success' && query.result.rows.length === 0) {
+        el.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: emptyText }));
+      }
+      el.classList.toggle('visible', el.childElementCount > 0);
+    }
+
+    function logFirstResult (query) {
+      if (query.state !== 'success' || logged.has(query.name)) return;
+      logged.add(query.name);
+      console.log(query.name, 'columns', query.result.columns, 'first row', query.result.rows[0], 'executed AQL', query.result.debug?.executedAql);
+    }
+
+    // Only rebuild a chart when its result object changed; otherwise just restyle the selection.
+    function isNew (query) {
+      if (lastResult.get(query.name) === query.result) return false;
+      lastResult.set(query.name, query.result);
+      return true;
+    }
+
+    const axis = (theme) => ({
+      axisLabel: { color: theme.text },
+      axisLine: { lineStyle: { color: theme.grid } },
+      splitLine: { lineStyle: { color: theme.grid } },
+    });
+
+    function renderKpis () {
+      document.querySelectorAll('[data-anfra-query="kpis"]').forEach((el) => el.classList.toggle('loading', kpis.state === 'executing'));
+      const row = kpis.result?.rows[0];
+      if (kpis.state === 'error') {
+        document.querySelectorAll('[data-kpi]').forEach((el) => { el.textContent = '!'; el.title = kpis.error.message; });
+        return;
+      }
+      if (!row) return;
+      const set = (key, f) => { document.querySelector(`[data-kpi="${key}"]`).textContent = fmt(f, row[key]); };
+      set('net_revenue', money); set('total_orders', count); set('aov', money2); set('buyers', count); set('gross_margin', pct);
+    }
+
+    function barChart (chart, query, labelKey, theme, colorIndex, horizontal) {
+      if (!query.result) return;
+      const rows = query.result.rows;
+      const selected = new Set(query.selectedRows.map((row) => row[labelKey]));
+      const data = rows.map((row) => ({
+        value: Number(row.net_revenue),
+        itemStyle: { opacity: selected.size === 0 || selected.has(row[labelKey]) ? 1 : 0.3 },
+      }));
+      const labels = rows.map((row) => row[labelKey]);
+      const valueAxis = { type: 'value', splitNumber: 3, axisLabel: { color: theme.text, formatter: (v) => moneyShort.format(v) }, splitLine: axis(theme).splitLine };
+      const catAxis = { type: 'category', data: labels, ...axis(theme), inverse: horizontal };
+      chart.setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 16, top: 8, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'item', valueFormatter: (v) => money.format(v) },
+        xAxis: horizontal ? valueAxis : catAxis,
+        yAxis: horizontal ? catAxis : valueAxis,
+        series: [{ type: 'bar', itemStyle: { color: theme.cat[colorIndex], borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0] }, data }],
+      });
+    }
+
+    function renderTrend (theme) {
+      if (!trend.result || !isNew(trend)) return;
+      const rows = trend.result.rows;
+      trendChart.setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, right: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: (v) => money.format(v) },
+        xAxis: { type: 'category', data: rows.map((row) => String(row.period).slice(0, 10)), ...axis(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => moneyShort.format(v) }, splitLine: axis(theme).splitLine },
+        series: [
+          { name: 'Net revenue', type: 'line', smooth: true, showSymbol: false, lineStyle: { color: theme.cat[0], width: 2 },
+            itemStyle: { color: theme.cat[0] }, areaStyle: { color: theme.cat[0], opacity: 0.08 },
+            data: rows.map((row) => (row.net_revenue === null ? null : Number(row.net_revenue))) },
+          { name: 'Gross profit', type: 'line', smooth: true, showSymbol: false, lineStyle: { color: theme.cat[1], width: 2 },
+            itemStyle: { color: theme.cat[1] },
+            data: rows.map((row) => (row.gross_profit === null ? null : Number(row.gross_profit))) },
+        ],
+      }, { replaceMerge: ['series'] });
+    }
+
+    function renderTopProducts () {
+      const body = document.getElementById('top-products-body');
+      const more = document.getElementById('more-products');
+      if (!topProducts.result) return;
+      body.replaceChildren(...topProducts.result.rows.map((row) => {
+        const tr = document.createElement('tr');
+        const cells = [
+          [row.product, ''], [row.category, ''],
+          [fmt(count, row.units), 'num'], [fmt(money, row.net_revenue), 'num'], [fmt(pct, row.margin), 'num'],
+        ];
+        for (const [text, cls] of cells) {
+          const td = document.createElement('td');
+          td.textContent = text; td.className = cls;
+          tr.append(td);
+        }
+        return tr;
+      }));
+      more.hidden = !topProducts.hasMore;
+    }
+
+    function render () {
+      const theme = chartTheme();
+      renderStatus(trend, 'trend-status', 'No sales for these filters');
+      renderStatus(byCategory, 'by-category-status', 'No sales for these filters');
+      renderStatus(byChannel, 'by-channel-status', 'No sales for these filters');
+      renderStatus(topProducts, 'top-products-status', 'No products sold for these filters');
+      allQueries.forEach(logFirstResult);
+      renderKpis();
+      renderTrend(theme);
+      barChart(categoryChart, byCategory, 'category', theme, 0, true);
+      barChart(channelChart, byChannel, 'channel', theme, 2, true);
+      renderTopProducts();
+      document.getElementById('clear-selection').hidden = byCategory.selectedRows.length + byChannel.selectedRows.length === 0;
+    }
+
+    app.subscribe(render);
+    darkQuery.addEventListener('change', () => { applyTheme(); lastResult.clear(); render(); });
+
+    function toggleSelect (query, dataIndex) {
+      const row = query.result.rows[dataIndex];
+      const selected = query.selectedRows;
+      query.select(selected.includes(row) ? selected.filter((r) => r !== row) : [...selected, row]);
+      app.execute();
+    }
+    categoryChart.on('click', (p) => toggleSelect(byCategory, p.dataIndex));
+    channelChart.on('click', (p) => toggleSelect(byChannel, p.dataIndex));
+
+    document.getElementById('more-products').addEventListener('click', () => {
+      topProducts.fetchMore().catch((err) => console.error('Could not load more products', err));
+    });
+
+    // Multi-select comboboxes (Basecoat). Wait for Basecoat to initialise before refresh().
+    const domReady = document.readyState === 'loading'
+      ? new Promise((resolve) => document.addEventListener('DOMContentLoaded', resolve))
+      : Promise.resolve();
+    function wireCombobox (filter, name) {
+      const box = document.getElementById(`${name}-combobox`);
+      const list = document.getElementById(`${name}-listbox`);
+      Promise.all([filter.loadOptions(), domReady]).then(([options]) => {
+        list.replaceChildren(...options.map((value) => {
+          const option = document.createElement('div');
+          option.setAttribute('role', 'option');
+          option.dataset.value = String(value);
+          option.textContent = String(value);
+          return option;
+        }));
+        box.refresh();
+      }).catch((err) => console.error(`Could not load ${name} options`, err));
+      box.addEventListener('change', (event) => {
+        const values = Array.isArray(event.detail.value) ? event.detail.value : [];
+        const input = document.getElementById(`${name}-input`);
+        input.dataset.placeholder ??= input.placeholder;
+        input.placeholder = values.length ? '' : input.dataset.placeholder;
+        filter.setCondition({ operator: 'is', values });
+        app.execute();
+      });
+    }
+    wireCombobox(category, 'category');
+    wireCombobox(country, 'country');
+
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+    function applyDateRange () {
+      if (fromInput.value && toInput.value) {
+        dates.setCondition({ operator: 'between', values: [fromInput.value, toInput.value] });
+      } else {
+        dates.setCondition({ operator: 'is', values: [] });
+      }
+      app.execute();
+    }
+    fromInput.addEventListener('change', applyDateRange);
+    toInput.addEventListener('change', applyDateRange);
+    document.querySelectorAll('[data-range]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const r = button.dataset.range;
+        fromInput.value = r === 'all' ? '' : `${r}-01-01`;
+        toInput.value = r === 'all' ? '' : `${r}-12-31`;
+        applyDateRange();
+      });
+    });
+
+    document.querySelectorAll('[data-grain]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-grain]').forEach((other) => {
+          const on = other === button;
+          other.dataset.variant = on ? 'secondary' : 'outline';
+          other.setAttribute('aria-pressed', String(on));
+        });
+        grain.setGrain(button.dataset.grain);
+        app.execute();
+      });
+    });
+
+    document.getElementById('clear-selection').addEventListener('click', () => {
+      app.clearSelection();
+      app.execute();
+    });
+
+    window.addEventListener('resize', () => { trendChart.resize(); categoryChart.resize(); channelChart.resize(); });
+
+    app.execute();
+  </script>
+</body>
+</html>

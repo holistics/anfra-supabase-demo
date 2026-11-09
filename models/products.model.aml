@@ -1,0 +1,38 @@
+Model products {
+  type: 'table'
+  label: 'Products'
+  description: 'The product catalog: 60 products across 8 categories.'
+  data_source_name: 'supabase'
+  table_name: '"ecommerce"."products"'
+
+  dimension id {
+    label: 'Product ID'
+    type: 'number'
+    primary_key: true
+    definition: @sql {{ #SOURCE.id }};;
+  }
+  dimension name {
+    label: 'Product Name'
+    type: 'text'
+    definition: @sql {{ #SOURCE.name }};;
+  }
+  dimension category {
+    label: 'Category'
+    type: 'text'
+    definition: @sql {{ #SOURCE.category }};;
+  }
+  dimension list_price {
+    label: 'List Price'
+    type: 'number'
+    description: 'Current catalog price.'
+    definition: @sql {{ #SOURCE.unit_price }};;
+    format: '[$$]#,###0.00'
+  }
+  dimension unit_cost {
+    label: 'Unit Cost'
+    type: 'number'
+    description: 'What one unit costs the shop to source.'
+    definition: @sql {{ #SOURCE.unit_cost }};;
+    format: '[$$]#,###0.00'
+  }
+}

@@ -1,0 +1,52 @@
+Model customers {
+  type: 'table'
+  label: 'Customers'
+  description: 'One row per registered shop customer.'
+  data_source_name: 'supabase'
+  table_name: '"ecommerce"."customers"'
+
+  dimension id {
+    label: 'Customer ID'
+    type: 'number'
+    primary_key: true
+    definition: @sql {{ #SOURCE.id }};;
+  }
+  dimension full_name {
+    label: 'Full Name'
+    type: 'text'
+    definition: @sql {{ #SOURCE.full_name }};;
+  }
+  dimension email {
+    label: 'Email'
+    type: 'text'
+    definition: @sql {{ #SOURCE.email }};;
+  }
+  dimension country {
+    label: 'Country'
+    type: 'text'
+    definition: @sql {{ #SOURCE.country }};;
+  }
+  dimension city {
+    label: 'City'
+    type: 'text'
+    definition: @sql {{ #SOURCE.city }};;
+  }
+  dimension acquisition_channel {
+    label: 'Acquisition Channel'
+    type: 'text'
+    description: 'How the customer first found the shop: Organic Search, Paid Social, Referral, Email, Direct.'
+    definition: @sql {{ #SOURCE.acquisition_channel }};;
+  }
+  dimension signed_up_at {
+    label: 'Signed Up At'
+    type: 'datetime'
+    definition: @sql {{ #SOURCE.created_at }};;
+  }
+
+  measure customer_count {
+    label: 'Customers'
+    type: 'number'
+    definition: @sql {{ id }};;
+    aggregation_type: 'count_distinct'
+  }
+}

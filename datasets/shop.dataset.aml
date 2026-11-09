@@ -1,0 +1,116 @@
+Dataset shop {
+  label: 'Shop (Supabase)'
+  description: '''
+# Shop: e-commerce sales on Supabase
+
+Sample online store data living in a Supabase Postgres database (`ecommerce` schema).
+
+## What this dataset can answer
+- Sales: gross sales, net revenue, discounts, units sold, AOV — by month, category, product, channel.
+- Customers: buyers, repeat buyers, revenue by country/city and acquisition channel.
+- Profitability: gross profit and margin, using product unit cost.
+
+## Definitions
+- **Net Revenue** counts only `completed` and `shipped` orders, after line discounts.
+- **Gross Sales** is every order line at list price, any status.
+'''
+  data_source_name: 'supabase'
+
+  models: [
+    customers,
+    products,
+    orders,
+    order_items,
+  ]
+
+  relationships: [
+    relationship(order_items.order_id > orders.id, true),
+    relationship(order_items.product_id > products.id, true),
+    relationship(orders.customer_id > customers.id, true),
+  ]
+
+  metric total_orders {
+    label: 'Total Orders'
+    type: 'number'
+    definition: @aql count_distinct(orders.id) ;;
+  }
+
+  metric total_customers {
+    label: 'Total Customers'
+    type: 'number'
+    definition: @aql count_distinct(customers.id) ;;
+  }
+
+  metric buyers {
+    label: 'Buyers'
+    type: 'number'
+    description: 'Distinct customers with at least one order.'
+    definition: @aql count_distinct(orders.customer_id) ;;
+  }
+
+  metric gross_sales {
+    label: 'Gross Sales'
+    type: 'number'
+    description: 'Quantity x unit price on every order line, before discounts, any status.'
+    definition: @aql sum(order_items.gross_amount) ;;
+    format: '[$$]#,###0'
+  }
+
+  metric net_revenue {
+    label: 'Net Revenue'
+    type: 'number'
+    description: 'Line amounts after discounts, completed and shipped orders only.'
+    definition: @aql sum(order_items.net_amount) | where(orders.status in ['completed', 'shipped']) ;;
+    format: '[$$]#,###0'
+  }
+
+  metric total_discount {
+    label: 'Total Discount'
+    type: 'number'
+    definition: @aql sum(order_items, order_items.quantity * order_items.discount) ;;
+    format: '[$$]#,###0'
+  }
+
+  metric units_sold {
+    label: 'Units Sold'
+    type: 'number'
+    definition: @aql sum(order_items.quantity) | where(orders.status in ['completed', 'shipped']) ;;
+  }
+
+  metric aov {
+    label: 'AOV (Average Order Value)'
+    type: 'number'
+    description: 'Net revenue per completed or shipped order.'
+    definition: @aql safe_divide(net_revenue, total_orders | where(orders.status in ['completed', 'shipped'])) ;;
+    format: '[$$]#,###0.00'
+  }
+
+  metric cogs {
+    label: 'Cost of Goods Sold'
+    type: 'number'
+    definition: @aql sum(order_items, order_items.quantity * products.unit_cost) | where(orders.status in ['completed', 'shipped']) ;;
+    format: '[$$]#,###0'
+  }
+
+  metric gross_profit {
+    label: 'Gross Profit'
+    type: 'number'
+    definition: @aql net_revenue - cogs ;;
+    format: '[$$]#,###0'
+  }
+
+  metric gross_margin {
+    label: 'Gross Margin %'
+    type: 'number'
+    definition: @aql safe_divide(gross_profit, net_revenue) ;;
+    format: '#,##0.0%'
+  }
+
+  metric return_rate {
+    label: 'Return Rate'
+    type: 'number'
+    description: 'Share of orders that were returned.'
+    definition: @aql safe_divide(total_orders | where(orders.status == 'returned'), total_orders) ;;
+    format: '#,##0.0%'
+  }
+}

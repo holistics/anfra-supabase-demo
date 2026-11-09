@@ -1,0 +1,44 @@
+Model orders {
+  type: 'table'
+  label: 'Orders'
+  description: 'One row per order (a checkout). Line-level detail is in order_items.'
+  data_source_name: 'supabase'
+  table_name: '"ecommerce"."orders"'
+
+  dimension id {
+    label: 'Order ID'
+    type: 'number'
+    primary_key: true
+    definition: @sql {{ #SOURCE.id }};;
+  }
+  dimension customer_id {
+    label: 'Customer ID'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.customer_id }};;
+  }
+  dimension status {
+    label: 'Status'
+    type: 'text'
+    description: 'completed / shipped / returned / cancelled'
+    definition: @sql {{ #SOURCE.status }};;
+  }
+  dimension channel {
+    label: 'Sales Channel'
+    type: 'text'
+    description: 'Where the order was placed: web, mobile_app, marketplace.'
+    definition: @sql {{ #SOURCE.channel }};;
+  }
+  dimension created_at {
+    label: 'Ordered At'
+    type: 'datetime'
+    definition: @sql {{ #SOURCE.created_at }};;
+  }
+
+  measure order_count {
+    label: 'Orders'
+    type: 'number'
+    definition: @sql {{ id }};;
+    aggregation_type: 'count_distinct'
+  }
+}
