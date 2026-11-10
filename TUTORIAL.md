@@ -1,8 +1,8 @@
-# Build trusted analytics on Supabase, for free, with your coding agent
+# Build trusted internal analytics on Supabase, for free, with your coding agent
 
 > **TL;DR**: Give anfra a read-only login to your Supabase Postgres, then ask your coding agent
 > (Claude Code, Codex, Cursor…) to model your tables, define your metrics, answer questions,
-> build a dashboard and publish it to your team. You stay in charge of what an agent shouldn't
+> build a dashboard and publish it to your team (it's for your team, not your app's users). You stay in charge of what an agent shouldn't
 > decide alone: **access** and **what your numbers mean**. After installing anfra, a
 > [single prompt](#the-prompt-steps-2-to-7-in-one-go) does Steps 2 to 7 and stops each time
 > it needs you. No ETL, no copy of your data, and anfra is open source (Apache 2.0).
@@ -107,8 +107,8 @@ to decide something. Fill in the brackets and paste it:
 > - **Step 6.** Answer "[net revenue and gross margin by product category]" with AQL, and
 >   check the total against a plain SQL query.
 > - **Step 7.** Build a Data App called "[Sales overview]" with KPIs, a trend over time, the
->   main breakdowns and a date filter. Tell me how to open it. Then commit the repo. Don't
->   publish; I'll do that.
+>   main breakdowns and a date filter. Tell me how to open it. Then commit the repo, run
+>   `anfra publish check` and show me what would be published. Don't publish; I'll do that.
 
 Paste the Session pooler string from Supabase's **Connect** button. It shows `[YOUR-PASSWORD]`
 instead of your password, so it's safe to share. You can also be more specific than the
@@ -136,8 +136,9 @@ create role anfra_reader login password '<password>';
 -- Read access to your app's tables. Not auth, storage or other Supabase internals.
 grant usage  on schema public to anfra_reader;
 grant select on all tables in schema public to anfra_reader;
--- Optional: also make tables created later readable. Leave this out if you'd
--- rather grant each new table yourself.
+-- Optional: also make tables created later readable. It only covers tables
+-- created by the role that runs it (usually `postgres`). Leave this out if
+-- you'd rather grant each new table yourself.
 alter default privileges in schema public grant select on tables to anfra_reader;
 
 -- Guard rails
@@ -151,8 +152,8 @@ INSERT in a read-only transaction`).
 
 **You check:**
 
-- **A read policy on every table with RLS.** `anfra_reader` matches none of your app's
-  policies, so without its own it **sees zero rows, without any error**. Each table needs
+- **A read policy on every table with RLS.** `anfra_reader` usually matches none of your
+  app's policies (they're written `to authenticated` or `to anon`), so without its own it **sees zero rows, without any error**. Each table needs
   something like:
   ```sql
   create policy anfra_reader_read on public.orders for select to anfra_reader using (true);
@@ -178,8 +179,10 @@ it never passes through the chat. Then: *"Role's created, go on."*
 
 ## Step 3: Add the password
 
-**The agent** replaces the `warehouse` example in `.anfra/data_sources.yml` (git-ignored) with
-your connection, and mirrors it without secrets in the committed `.anfra/data_sources.yml.example`:
+`anfra init` created two files with a `warehouse` placeholder: `.anfra/data_sources.yml`
+(git-ignored, for your credentials) and `.anfra/data_sources.yml.example` (committed, for your
+teammates). **The agent** replaces the placeholder in both with your connection, leaving the
+password out of the example:
 
 ```yaml
 data_sources:
@@ -317,7 +320,8 @@ explore {
 | Outdoor | $269,376 | 52.6% |
 | … | | |
 
-*(Results are from the demo store's data. Yours will be your own.)*
+*(Results are from the demo store's data, formatted for reading. The CLI prints raw numbers
+such as `628950.6` and `0.4968`. Yours will be your own.)*
 
 The query never mentions `order_items`, `unit_cost` or a join: anfra works those out from the
 dataset. Then the agent runs a plain SQL query against Supabase for the same total.
@@ -343,7 +347,11 @@ anfra serve
 # Data Apps  http://127.0.0.1:7878/apps/
 ```
 
-and that the commit left out `.anfra/data_sources.yml` (`git log --stat -1` shouldn't list it).
+and that the commit left out your credentials: `git log --stat -1` should list
+`.anfra/data_sources.yml.example`, but not `.anfra/data_sources.yml`.
+
+The agent also shows you what `anfra publish check` would send to your org. You'll use that
+in Step 8.
 
 **You:** shape the page in conversation, as specifically as you like:
 
@@ -362,10 +370,10 @@ an org on [anfra Cloud](https://anfra.ai/cloud/), which is free during its beta.
 signs in and opens the Data Apps in the browser, and their agents can connect to the same metrics
 through anfra Cloud's MCP server.
 
-First see what would go up:
+First see what would go up (the agent already ran this at the end of Step 7):
 
 ```sh
-anfra publish --dry-run
+anfra publish check
 ```
 
 It lists only your `.aml` files and everything under `apps/`. `.anfra/` stays local, `.env`
@@ -375,9 +383,10 @@ files and notes don't go, and `.gitignore` doesn't affect it. Then publish:
 anfra publish
 ```
 
-The first time, it opens your browser to sign in and choose or create an org. It saves the org's
-address in `.anfra/config.yml`. Commit that file so everyone on the team publishes to the same
-org.
+The first time, it offers your stored logins or signs you in, and asks which org to publish
+to. It saves the org's address (`https://<server>/o/<org>`) as `org.url` in
+`.anfra/config.yml`. Commit that file so everyone on the team publishes to the same org. To
+set the org without being asked, for example in CI, use `anfra publish --set-org <org url>`.
 
 Things to know:
 
@@ -420,7 +429,7 @@ anfra validate                                                            # chec
 anfra show shop                                                           # fields and metrics as AQL sees them
 anfra query --dataset shop 'explore { measures { net_revenue: net_revenue } }'
 anfra serve                                                               # Data Apps and MCP at :7878
-anfra publish --dry-run                                                   # what would go to your org
+anfra publish check                                                       # what would go to your org
 ```
 
 AML and AQL are documented at [amql.org/docs](https://amql.org/docs). For a complete, working set
@@ -433,14 +442,15 @@ of models, metrics and a Data App, see the
 |---|---|
 | A table shows **0 rows** through anfra, but has data in Supabase | RLS: add a `for select to anfra_reader` policy on that table (Step 2). |
 | `could not translate host name db.<ref>.supabase.co` | That host is IPv6-only. Use the Session pooler host. |
-| `Tenant or user not found` | The pooler host doesn't match Connect (region, or `aws-0` vs `aws-1`), or the user is missing `.<project-ref>`. |
+| `Tenant or user not found` | The pooler host doesn't match Connect (region, or `aws-0` vs `aws-1`). |
+| `no tenant identifier provided` | The user is missing `.<project-ref>`: use `anfra_reader.<project-ref>`. |
 | `password authentication failed` right after changing the password | The pooler caches credentials for a short while. Wait a minute and retry. |
-| `invalid config for dbtype` | `port` must be a number (`5432`), not `"5432"`. |
+| `invalid config for dbtype` | `port` must be a number (`5432`), not `"5432"`, and the database key is `dbname`, not `database`. |
 | `permission denied for table …` / `for schema …` | Add `grant usage on schema …` / `grant select on …` for `anfra_reader`. Tables in a newly created schema need the grants again. |
 | `cannot execute … in a read-only transaction` | Working as intended: the role is read-only. |
 | Everything stopped working after a quiet week | Free-tier Supabase projects pause after a week without activity. Restore the project from the Supabase dashboard. |
 | Works locally, but published apps can't reach the database | If you turned on Supabase **Network Restrictions**, anfra Cloud's addresses must be allowed too. |
-| The agent writes raw SQL instead of AQL | Check `anfra agent setup --check`, restart the agent, and name the dataset in your prompt. |
+| The agent writes raw SQL instead of AQL | Check `anfra agent setup check`, restart the agent, and name the dataset in your prompt. |
 
 ## Links
 
