@@ -63,7 +63,11 @@ follow [TUTORIAL.md](TUTORIAL.md) from step 3.
 
 - **Read-only**: Anfra only reads. `anfra_reader` has `SELECT` on one schema,
   `default_transaction_read_only = on` and a 60s statement timeout, so nothing it runs can change
-  or hog your database.
+  your data.
+- **Production performance (optional)**: analytics queries still run on your primary database. If
+  you want to keep them off it, point Anfra at a
+  [Supabase read replica](https://supabase.com/docs/guides/platform/read-replicas) instead: same
+  config, the replica's host.
 - **Session pooler**: Supabase's direct host (`db.<ref>.supabase.co`) is IPv6-only. The Session
   pooler works over IPv4 everywhere. On the pooler the user is written `<role>.<project-ref>`.
 - **Not exposed over the API**: the `ecommerce` schema is not in Supabase's *Exposed schemas*, so

@@ -137,6 +137,11 @@ $ anfra query --lang sql -s supabase "insert into ecommerce.products values (999
 error: 'run query: ERROR: cannot execute INSERT in a read-only transaction (SQLSTATE 25006)'
 ```
 
+> **Production performance is your call.** Read-only protects your data, not your primary's
+> load. If you want analytics queries kept off production, connect Anfra to a
+> [Supabase read replica](https://supabase.com/docs/guides/platform/read-replicas) instead. Only
+> the host in `data_sources.yml` changes.
+
 **`.anfra/data_sources.yml`** (git-ignored) ends up like this:
 
 ```yaml
