@@ -4,7 +4,7 @@
 > (Claude Code, Codex, Cursor…) to model your tables, define your metrics, answer questions,
 > build a dashboard and publish it to your team. You stay in charge of what an agent shouldn't
 > decide alone: **access** and **what your numbers mean**. After installing anfra, a
-> [single prompt](#the-prompt-steps-2-to-8-in-one-go) does Steps 2 to 8 and stops each time
+> [single prompt](#the-prompt-steps-2-to-7-in-one-go) does Steps 2 to 7 and stops each time
 > it needs you. No ETL, no copy of your data, and anfra is open source (Apache 2.0).
 >
 > Want to try it on sample data first? The **[demo repo](https://github.com/holistics/anfra-supabase-demo)**
@@ -48,7 +48,7 @@ Data stays in Supabase. anfra reads it live, through a login that can't write.
 
 The split is deliberate. An agent can draft everything, but it shouldn't decide on its own what
 it's allowed to read or what counts as revenue. That's how the post works: after installing,
-you paste [**one prompt**](#the-prompt-steps-2-to-8-in-one-go) that covers Steps 2 to 8, and
+you paste [**one prompt**](#the-prompt-steps-2-to-7-in-one-go) that covers Steps 2 to 7, and
 the agent pauses at each of these decisions.
 
 **You need:** a Supabase project with your app's data, a coding agent, and macOS or Linux.
@@ -80,9 +80,9 @@ starts, so without a restart it would do the rest from memory, and guess.
 > Keep this repo separate from your app's code, or put it in an `analytics/` folder inside it.
 > Either works. It's just files.
 
-## The prompt: Steps 2 to 8 in one go
+## The prompt: Steps 2 to 7 in one go
 
-After the restart, one prompt takes the agent through Steps 2 to 8. It stops wherever you have
+After the restart, one prompt takes the agent through Steps 2 to 7. It stops wherever you have
 to decide something. Fill in the brackets and paste it:
 
 > **You:** Set up anfra on my Supabase database so we can analyse our [sales] data. Go step by
@@ -91,8 +91,9 @@ to decide something. Fill in the brackets and paste it:
 > - **Step 2.** Write the SQL for a read-only role `anfra_reader`. It should read the app
 >   tables in `public` (nothing in `auth` or `storage`), be read-only with a 60s statement
 >   timeout, and have a select policy on every table with Row Level Security turned on. Leave
->   out personal data like email, phone and address columns. Use `<password>` as the password. **STOP** so I can review
->   and run it.
+>   out personal data like email, phone and address columns. List any views and any
+>   `security definer` functions it could reach. Use `<password>` as the password. **STOP**
+>   so I can review and run it.
 > - **Step 3.** Connect anfra as the data source `supabase`, logging in as `anfra_reader`
 >   through this Session pooler string: `[paste it from Supabase → Connect]`. Leave
 >   `<password>` as a placeholder. **STOP** so I can fill in the password. Then list the tables
@@ -106,8 +107,8 @@ to decide something. Fill in the brackets and paste it:
 > - **Step 6.** Answer "[net revenue and gross margin by product category]" with AQL, and
 >   check the total against a plain SQL query.
 > - **Step 7.** Build a Data App called "[Sales overview]" with KPIs, a trend over time, the
->   main breakdowns and a date filter. Tell me how to open it.
-> - **Step 8.** Commit the repo. Don't publish; I'll do that.
+>   main breakdowns and a date filter. Tell me how to open it. Then commit the repo. Don't
+>   publish; I'll do that.
 
 Paste the Session pooler string from Supabase's **Connect** button. It shows `[YOUR-PASSWORD]`
 instead of your password, so it's safe to share. You can also be more specific than the
@@ -115,26 +116,18 @@ brackets suggest: name the tables to model, or describe the dashboard you want. 
 this post uses the names above, the `shop` dataset and a "Sales overview" app. Read your own
 names in their place.
 
-You don't need to run Steps 2 to 8 separately; this prompt does them. Read them alongside
-it: each one covers what the agent does, what to check when it stops, and what to say back.
+The steps below follow the prompt. Each one says what the agent does, **what you check** when
+it stops, and what you might say back.
 
-## Step 2: Create a read-only role (the agent drafts it, you approve it)
+## Step 2: Approve a read-only role
 
-anfra should log in with its own role, one that can read your app's tables and nothing else.
-The agent starts by writing the SQL for it, then stops.
+**The agent** writes the SQL for a role that can read your app's tables and nothing else. If
+it's opened in your app's repo, it works from `supabase/migrations`, and you run the SQL in the
+Supabase **SQL Editor**. If it's connected through the
+[Supabase MCP server](https://supabase.com/docs/guides/getting-started/mcp), it can run the
+SQL itself, after you approve each statement.
 
-How the agent finds your tables, RLS settings and columns depends on what it can see:
-
-- **Opened in your app's repo**, it reads your `supabase/migrations`. You review the SQL and
-  paste it into the Supabase **SQL Editor**, replacing `<password>` with a strong one.
-- **Connected to Supabase** (for example through the
-  [Supabase MCP server](https://supabase.com/docs/guides/getting-started/mcp)), it can look at
-  the live schema and run the SQL itself. Approve each statement before it runs, and set the
-  password yourself afterwards in the SQL Editor
-  (`alter role anfra_reader password '…'`) so it never passes through the chat. The pooler
-  caches passwords for a short while, so if the first login fails, wait a minute and retry.
-
-Either way, the result should look like this (the demo repo has a complete version in
+The core of it looks like this (the demo has a complete version in
 [`supabase/anfra_reader.sql`](https://github.com/holistics/anfra-supabase-demo/blob/main/supabase/anfra_reader.sql)):
 
 ```sql
@@ -152,63 +145,41 @@ alter role anfra_reader set default_transaction_read_only = on;
 alter role anfra_reader set statement_timeout = '60s';
 ```
 
-The role has no `insert`, `update` or `delete` grants, so it can't change your tables. That's
-what protects your data. The read-only default is a second layer on top of it, and makes a
-write fail straight away:
+The role has no `insert`, `update` or `delete` grants, so it can't change your tables. The
+read-only default is a second layer that makes any write fail straight away (`cannot execute
+INSERT in a read-only transaction`).
 
-```
-ERROR: cannot execute INSERT in a read-only transaction (SQLSTATE 25006)
-```
+**You check:**
 
-One gap to check: Postgres lets every role run functions by default. If `public` has
-`security definer` functions that write data, the agent should list them, and you decide
-whether to revoke `execute` on them.
+- **A read policy on every table with RLS.** `anfra_reader` matches none of your app's
+  policies, so without its own it **sees zero rows, without any error**. Each table needs
+  something like:
+  ```sql
+  create policy anfra_reader_read on public.orders for select to anfra_reader using (true);
+  ```
+- **Column grants for personal data.** Tables with emails, phone numbers or addresses should
+  grant only the columns analysts need:
+  ```sql
+  revoke select on public.customers from anfra_reader;
+  grant select (id, country, city, acquisition_channel, created_at) on public.customers to anfra_reader;
+  ```
+- **Views.** The grant covers views too, and a Supabase view runs as its owner unless it's
+  created `with (security_invoker = on)`. Such a view skips RLS and column grants, so revoke
+  `select` on any that expose personal data.
+- **`security definer` functions.** Every role can run functions by default. If one in
+  `public` writes data, decide whether to revoke `execute` on it.
+- **Load.** A read-only login protects your data, not your database's CPU. To keep analytics
+  off your primary, use a [read replica](https://supabase.com/docs/guides/platform/read-replicas)
+  host in Step 3.
 
-What to check before you approve it:
+**You:** replace `<password>` with a strong one and run the SQL. If the agent ran it through
+MCP, set the password yourself in the SQL Editor (`alter role anfra_reader password '…'`), so
+it never passes through the chat. Then: *"Role's created, go on."*
 
-**Row Level Security.** Most Supabase tables have RLS turned on, with policies written for your
-app's users. `anfra_reader` matches none of them, so without its own policy it **sees zero rows,
-without any error**. Check there's a read policy like this one for each table you want to
-analyse:
+## Step 3: Add the password
 
-```sql
-create policy anfra_reader_read on public.orders
-  for select to anfra_reader using (true);
-```
-
-**Personal data.** If a table holds emails, phone numbers or addresses that analysts don't need,
-the grant should list only the columns they do need, not the whole table:
-
-```sql
-revoke select on public.customers from anfra_reader;
-grant select (id, country, city, acquisition_channel, created_at) on public.customers to anfra_reader;
-```
-
-Check your **views** too. `grant select on all tables` covers views as well, and a Supabase
-view runs as its owner unless it's created `with (security_invoker = on)`. Such a view skips
-both RLS and the column grant above, so a view that shows `customers.email` would still expose
-it. Revoke `select` on views like that, or leave them out of the grant.
-
-**Load on production.** A read-only login protects your data, not your database's CPU. To keep
-analytics queries off your primary, point anfra at a
-[read replica](https://supabase.com/docs/guides/platform/read-replicas) in the next step. Only the
-host changes.
-
-## Step 3: Connect (the agent writes the config, you add the password)
-
-Next the agent configures anfra's connection from the Session pooler string in your prompt.
-Two Supabase details the agent needs to get right, and you should check:
-
-- **The pooler, not `db.<ref>.supabase.co`.** The direct host is IPv6-only, so many laptops
-  and CI runners can't reach it. The Session pooler works over IPv4.
-- **On the pooler, the username carries the project ref**: `anfra_reader.<project-ref>`, not
-  `anfra_reader`.
-- **Copy the host exactly as Connect shows it.** Depending on the project it starts with
-  `aws-0-` or `aws-1-`, followed by your region.
-
-The agent replaces the `warehouse` example in `.anfra/data_sources.yml` (git-ignored) with
-something like this, and mirrors it without secrets in the committed
-`.anfra/data_sources.yml.example`:
+**The agent** replaces the `warehouse` example in `.anfra/data_sources.yml` (git-ignored) with
+your connection, and mirrors it without secrets in the committed `.anfra/data_sources.yml.example`:
 
 ```yaml
 data_sources:
@@ -224,26 +195,27 @@ data_sources:
       require_ssl: true
 ```
 
-Now open `.anfra/data_sources.yml` in your editor and replace `<password>` with the password you
-set for `anfra_reader` in Step 2. That's the only thing you type yourself, and it never goes
-through the chat. This login is the only one anfra ever uses, from your laptop or (after Step 9)
-from anfra Cloud, and it can't write.
+**You check:**
 
-Then tell the agent to carry on:
+- **The host is the Session pooler,** copied exactly from Connect (it starts with `aws-0-` or
+  `aws-1-`), not `db.<ref>.supabase.co`. That direct host is IPv6-only, and many laptops and
+  CI runners can't reach it.
+- **The user carries the project ref:** `anfra_reader.<project-ref>`, not `anfra_reader`.
 
-> **You:** Password's in, go on.
+**You:** open `.anfra/data_sources.yml` in your editor and replace `<password>`. That's the only
+thing you type yourself, and it never goes through the chat. Then: *"Password's in, go on."*
 
-It checks the connection and lists your tables with their row counts. If a table you care about shows
-**0 rows** but has data in the Supabase table editor, it's RLS: go back to Step 2.
+The agent connects and lists your tables with their row counts. If a table you care about
+shows **0 rows** but has data in the Supabase table editor, it's missing an RLS policy: back to
+Step 2. If the first login fails right after you set the password, wait a minute: the pooler
+caches passwords briefly.
 
-## Step 4: Let the agent model your tables
+## Step 4: Review the models
 
-A **model** describes one table: its fields, their types, and its primary key. A **dataset**
-groups models, says how they join, and holds your metrics. You don't need to learn AML to get
-started.
-
-The agent looks at the columns and sample values, writes one `models/<table>.model.aml` per table
-and a `datasets/shop.dataset.aml`, and validates them. A model looks like this:
+**The agent** looks at your columns and sample values, then writes one `models/<table>.model.aml`
+per table and a `datasets/shop.dataset.aml`. A **model** describes one table: its fields, types
+and primary key. The **dataset** groups the models, says how they join, and will hold your
+metrics. A model looks like this:
 
 ```aml
 Model orders {
@@ -262,39 +234,38 @@ Model orders {
     description: 'completed / shipped / returned / cancelled'
     definition: @sql {{ #SOURCE.status }};;
   }
-  dimension created_at {
-    label: 'Ordered At'
-    type: 'datetime'
-    definition: @sql {{ #SOURCE.created_at }};;
-  }
-  // customer_id, channel …
+  // created_at, customer_id, channel …
 }
 ```
 
-**Review it like a pull request.** `anfra validate` passing only means the files are well
-formed. Check these things yourself:
+**You check** it like a pull request. `anfra validate` passing only means the files are well
+formed.
 
 - **Primary keys.** Every model has one, and it really is unique.
 - **Relationships point the right way.** `relationship(order_items.order_id > orders.id, true)`
   means many order items to one order. A reversed relationship makes totals double count.
-- **Types.** Money columns are `number`, timestamps are `datetime`, and ids that are really codes
-  are `text`.
-- **Nothing sensitive slipped in.** If it did, ask the agent to remove it, and tighten the grant
-  from Step 2.
+- **Types.** Money columns are `number`, timestamps are `datetime`, and ids that are really
+  codes are `text`.
+- **Nothing sensitive slipped in.** If it did, have it removed and tighten the grant from Step 2.
 
-If something's off, say so in plain words and let the agent fix it:
+**You:** say what's off in plain words, or approve it:
 
-> **You:** `order_items.product_id` joins to `products.id`, not `products.sku`. And drop the
+> `order_items.product_id` joins to `products.id`, not `products.sku`. And drop the
 > `audit_log` table, we don't need it.
 
-## Step 5: Tell the agent what your metrics mean
+## Step 5: Define your metrics
 
-This is the step an agent can't do for you. It can see that `orders` has a `status` column. It
-can't know whether your finance team counts refunded orders as revenue. So it proposes
-definitions, points out what's ambiguous, and stops. Answer with the definitions your business
-actually uses:
+**The agent** can see that `orders` has a `status` column, but it can't know whether your
+finance team counts refunded orders as revenue. So it proposes definitions, points out what's
+ambiguous, and stops. This is the step it can't do for you.
 
-> **You:** Use these:
+**You check** each proposal against how your business actually counts, and pay most attention
+to what it flagged as ambiguous. Start with the metrics your team already argues about: that's
+where a semantic layer pays off first.
+
+**You:** answer with your definitions:
+
+> Use these:
 > - **Net revenue**: quantity × (unit price − discount), only for `completed` and `shipped` orders.
 > - **AOV**: net revenue per completed or shipped order.
 > - **Gross profit**: net revenue minus quantity × product unit cost, same statuses.
@@ -302,7 +273,7 @@ actually uses:
 > - **Return rate**: share of all orders, cancelled ones included, with status `returned`.
 > - **Buyers**: distinct customers with at least one order.
 
-The agent writes them as metrics in the dataset, each built on the ones before it:
+The agent adds them to the dataset, each built on the ones before it:
 
 ```aml
   metric net_revenue {
@@ -323,20 +294,12 @@ The agent writes them as metrics in the dataset, each built on the ones before i
   }
 ```
 
-The "completed and shipped only" rule now lives in exactly one place. Each `description` is
-also what the next agent, or the next person, reads before using the metric, so ask for good
-ones.
+The "completed and shipped only" rule now lives in one place. Each `description` is what the
+next agent or person reads before using the metric, so make sure they're clear.
 
-> Write down definitions your team already argues about. Those are the metrics where a
-> semantic layer pays off first.
+## Step 6: Check a number
 
-## Step 6: Ask questions, then check a number
-
-With metrics in place, the agent answers the question from your prompt. Say it was:
-
-> Net revenue and gross margin by product category, highest revenue first.
-
-The agent writes AQL against the `shop` dataset and runs it:
+**The agent** answers the question from your prompt with AQL against the `shop` dataset:
 
 ```
 explore {
@@ -356,59 +319,43 @@ explore {
 
 *(Results are from the demo store's data. Yours will be your own.)*
 
-The query never mentions `order_items`, `unit_cost` or a join. anfra works those out from the
-dataset and sends Supabase plain Postgres SQL. Ask *"show me the SQL"* if you want to read it.
+The query never mentions `order_items`, `unit_cost` or a join: anfra works those out from the
+dataset. Then the agent runs a plain SQL query against Supabase for the same total.
 
-From here on, just keep asking. Questions that cross several tables work the same way:
+**You check** that the two totals match. If they don't, the difference usually points at a
+wrong relationship or metric. Fix the definition once, and every later answer is fixed too.
 
-> **You:** Which acquisition channel brings the most buyers, and what's their AOV and return rate?
+**You:** keep asking. Questions across several tables work the same way, and for the first few,
+ask for the same check:
 
-**Trust, but verify.** The prompt has the agent check its first answer against plain SQL. Keep
-doing that for the first few questions:
+> Which acquisition channel brings the most buyers, and what's their AOV and return rate?
+> Check the buyer count against plain SQL.
 
-> **You:** Check total net revenue with a plain SQL query straight against Supabase, without
-> using the dataset. Do the numbers match?
+## Step 7: Open the dashboard
 
-If they don't match, the difference usually points at a wrong relationship or metric. Fix the
-definition once, and every later answer is fixed too.
+**The agent** writes `apps/sales_overview.html`, one HTML file whose queries are AQL against
+your metrics, so the dashboard and the chat can't disagree. Then it commits the repo.
 
-## Step 7: Build a dashboard
-
-The agent writes `apps/sales_overview.html`, one self-contained HTML file whose queries are AQL
-against your metrics. Open it:
+**You check** the page in your browser:
 
 ```sh
 anfra serve
 # Data Apps  http://127.0.0.1:7878/apps/
 ```
 
-The first version follows the short brief in the prompt. Then shape it in conversation, as
-specifically as you like:
+and that the commit left out `.anfra/data_sources.yml` (`git log --stat -1` shouldn't list it).
 
-> **You:** Add a week / month / quarter switch to the trend, revenue by acquisition channel,
-> and the top 10 products. Add a country filter, and make clicking a category bar filter the
-> rest of the page.
+**You:** shape the page in conversation, as specifically as you like:
 
-The numbers on the page come from the same metric definitions as the answers
-in Step 6, so the dashboard and the chat can't disagree.
+> Add a week / month / quarter switch to the trend, revenue by acquisition channel, and the
+> top 10 products. Add a country filter, and make clicking a category bar filter the rest of
+> the page. Commit when it's done.
 
-## Step 8: Commit
+Your models, metrics and dashboards are now plain files in Git. When someone changes what "net
+revenue" means, it shows up as a diff in a pull request. Teammates who code can clone the repo,
+add their own credentials, run `anfra agent setup`, and their agents use the same definitions.
 
-The prompt ends with the agent committing the repo. Doing it yourself is just:
-
-```sh
-git add . && git commit -m "Semantic layer on our Supabase database"
-```
-
-Your models, metrics and dashboards are now plain files under review. `.anfra/data_sources.yml`
-stays out of Git, and the committed `.anfra/data_sources.yml.example` tells a teammate what to
-fill in. When someone changes what "net revenue" means, it shows up as a diff in a pull request
-instead of someone quietly editing a query.
-
-Teammates who code can clone the repo, add their own credentials, run `anfra agent setup`, and
-their agents use the same definitions.
-
-## Step 9: Publish to your team
+## Step 8: Publish to your team
 
 Everyone else shouldn't need a terminal to see the dashboard. `anfra publish` uploads the repo to
 an org on [anfra Cloud](https://anfra.ai/cloud/), which is free during its beta. Your team then
