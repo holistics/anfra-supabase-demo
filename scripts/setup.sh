@@ -61,7 +61,7 @@ data_sources:
       require_ssl: true
 YAML
 
-echo "→ Checking the connection through Anfra"
+echo "→ Checking the connection through anfra"
 # A new password can take a moment to reach the pooler: retry a few times.
 for attempt in 1 2 3 4 5 6; do
   if out="$(anfra query --lang sql --data-source supabase 'select count(*) as orders from ecommerce.orders' 2>&1)" \
