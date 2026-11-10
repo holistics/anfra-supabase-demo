@@ -1,148 +1,125 @@
-# Turn your Supabase database into a governed analytics layer with Anfra
+# Put a semantic layer on your Supabase database, with your coding agent doing the work
 
-> **TL;DR**: Connect Anfra to Supabase Postgres with a read-only role, describe your tables
-> once in AML, and you get consistent business metrics you can query in AQL, put on a live
-> dashboard (a Data App), or hand to your AI coding agent. No ETL and no copy of your data.
-> Full demo repo: **https://github.com/holistics/anfra-supabase-demo**
+> **TL;DR**: Give anfra a read-only login to your Supabase Postgres, then ask your coding agent
+> (Claude Code, Codex, Cursor…) to model your tables, define your metrics, answer questions and
+> build a dashboard. You stay in charge of the two things an agent shouldn't guess: **access** and
+> **what your numbers mean**. No ETL, no copy of your data.
+>
+> Want to try it on sample data first? The **[demo repo](https://github.com/holistics/anfra-supabase-demo)**
+> seeds a small store into Supabase and has everything below already built.
 
-![Shop overview Data App, running on Supabase](https://raw.githubusercontent.com/holistics/anfra-supabase-demo/main/docs/shop-overview.png)
+![A Data App running on Supabase](https://raw.githubusercontent.com/holistics/anfra-supabase-demo/main/docs/shop-overview.png)
 
 ## Why do this?
 
-Supabase is a great place to *run* your app: Postgres, auth, storage, all in one. Sooner or
-later someone asks *"what was our net revenue last quarter, by category?"*, and the answer turns
-into a pile of hand-written SQL that each person writes a bit differently.
+Supabase is a great place to *run* your app. Sooner or later someone asks *"what was our net
+revenue last quarter, by category?"*. You can ask an AI agent to write the SQL, but each time it
+re-guesses which tables to join and what "net revenue" means, and two people asking the same
+question get two different numbers.
 
-[Anfra](https://anfra.ai) adds a **semantic layer** on top of the same Postgres:
+[anfra](https://anfra.ai) adds a **semantic layer** on top of the same Postgres:
 
-- **Define metrics once.** "Net revenue" means one thing, written in one file, reviewed in Git.
-- **Query by meaning, not joins.** AQL knows how `orders`, `order_items` and `products` relate,
-  so a query names fields and metrics and Anfra writes the SQL.
-- **Ship dashboards as code.** A Data App is one HTML file in your repo, served by `anfra serve`.
-- **Give your AI agent guardrails.** Anfra ships skills and an MCP server, so Claude Code, Cursor
-  and friends query your *defined* metrics instead of guessing at SQL.
+- **Metrics are defined once**, in plain-text files in Git: "net revenue" means one thing, and
+  changes to it go through code review.
+- **Agents query the definitions, not raw tables.** With anfra's skills, your agent writes AQL
+  that names fields and metrics. anfra writes the joins and the SQL.
+- **Dashboards are code too.** A Data App is one HTML file in your repo, served by `anfra serve`.
 
-Data stays in Supabase. Anfra reads it live, through a read-only login.
+Data stays in Supabase. anfra reads it live, through a login that can't write.
 
-## What we'll build
+## Who does what
 
-```
- Supabase Postgres                                  Anfra repo (Git)
- ┌───────────────────────┐   read-only role    ┌──────────────────────────────┐
- │ ecommerce.customers   │   via Session       │ models/    one per table     │
- │ ecommerce.products    │ ◀──── pooler ────── │ datasets/  joins + metrics   │──▶ AQL / Data Apps / MCP
- │ ecommerce.orders      │   (IPv4, TLS)       │ apps/      dashboards        │
- │ ecommerce.order_items │                     └──────────────────────────────┘
- └───────────────────────┘
-```
+| You | Your agent |
+|---|---|
+| Create a read-only role and decide which tables it sees | Explore the schema and write the models |
+| Put the credentials in a local file | Wire up relationships, validate the repo |
+| Say what each metric means for *your* business | Turn that into metric definitions |
+| Review the result, check a few numbers | Answer questions, verify them against SQL, build dashboards |
 
-A small online store: 2,000 customers, 60 products, ~9,400 orders and ~22,000 order lines from
-Jan 2025 to Oct 2026. By the end you'll have:
+The split is deliberate. The agent never sees your `postgres` admin password, and it never
+decides on its own what counts as revenue.
 
-1. Sample data in your Supabase project
-2. A read-only `anfra_reader` role
-3. An Anfra repo with 4 models and a `shop` dataset with 11 metrics
-4. AQL queries checked against plain SQL
-5. A live dashboard with filters and cross-filtering
-
-**Time:** ~10 minutes. **You need:** a Supabase project, `psql`, macOS/Linux.
+**You need:** a Supabase project with your app's data, a coding agent, and macOS or Linux.
+**Time:** about 20 minutes.
 
 ---
 
-## Step 0: Get the Anfra CLI and the demo repo
+## Step 1: Install anfra and give your agent the skills
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/holistics/anfra/main/install.sh | bash
-anfra version
 
-git clone https://github.com/holistics/anfra-supabase-demo.git
-cd anfra-supabase-demo
+mkdir my-analytics && cd my-analytics && git init
+anfra init           # .anfra/ config, models/, datasets/, apps/, AGENTS.md
+anfra agent setup    # installs the anfra skills into the coding agents it finds
 ```
 
-> Starting from scratch instead? `anfra init` in any folder creates the same layout:
-> `.anfra/data_sources.yml`, `models/`, `datasets/`, `apps/`.
+`anfra agent setup` teaches your agent anfra's languages (AML for models, AQL for queries) and
+commands. Restart the agent afterwards so it picks the skills up, and open it in `my-analytics`.
 
-## Step 1: Get your Supabase connection string
+> Keep this repo separate from your app's code, or put it in an `analytics/` folder inside it.
+> Either works. It's just files.
 
-In the Supabase dashboard, click **Connect** at the top of your project, then copy the
-**Session pooler** URI:
+## Step 2: Create a read-only role (you do this)
 
-```
-postgresql://postgres.<project-ref>:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres
-```
+This is the one step you do by hand. It needs your admin login, and that login shouldn't go to an
+agent.
 
-Two Supabase details worth knowing:
-
-- **Use the pooler, not `db.<ref>.supabase.co`.** The direct host is IPv6-only, so many laptops,
-  CI runners and cloud VMs can't reach it. The Session pooler works over IPv4.
-- **Pooler usernames carry the project ref**: `postgres.<project-ref>`. The same goes for any
-  role you create: `anfra_reader.<project-ref>`.
-
-Keep it out of Git:
-
-```sh
-echo 'postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres' > .env.local
-```
-
-(`.env.local` is already git-ignored in the demo repo.)
-
-## Step 2: Seed data and create a read-only role
-
-One script does both and writes Anfra's connection config:
-
-```sh
-./scripts/setup.sh
-```
-
-```
-→ Seeding the ecommerce schema on aws-0-<region>.pooler.supabase.com
- table_name  | count
--------------+-------
- customers   |  2000
- products    |    60
- orders      |  9357
- order_items | 22210
-→ Creating the read-only role anfra_reader
-→ Writing .anfra/data_sources.yml (git-ignored)
-→ Checking the connection through Anfra
-  orders visible to anfra_reader: 9357
-✓ Done. Next: anfra validate && anfra serve
-```
-
-What it ran:
-
-**`supabase/seed.sql`** creates an `ecommerce` schema with deterministic data, so everyone
-following along gets the same numbers. The schema is *not* in Supabase's **Exposed schemas**, so
-these tables aren't reachable through the auto-generated REST/GraphQL API.
-
-**`supabase/anfra_reader.sql`** creates the role Anfra logs in as. If you prefer the SQL Editor,
-this is the whole thing:
+Open the **SQL Editor** in the Supabase dashboard and run the following, changing the password and
+the schema if your tables aren't in `public`:
 
 ```sql
 create role anfra_reader login password '<a-strong-password>';
 
-grant usage  on schema ecommerce to anfra_reader;
-grant select on all tables in schema ecommerce to anfra_reader;
-alter default privileges in schema ecommerce grant select on tables to anfra_reader;
+-- Read access to your app's tables. Not auth, storage or other Supabase internals.
+grant usage  on schema public to anfra_reader;
+grant select on all tables in schema public to anfra_reader;
+alter default privileges in schema public grant select on tables to anfra_reader;
 
-alter role anfra_reader set statement_timeout = '60s';
+-- Guard rails
 alter role anfra_reader set default_transaction_read_only = on;
+alter role anfra_reader set statement_timeout = '60s';
 ```
 
-Anfra only ever reads. With a role that *can't* write, nothing you or an AI agent runs through
-Anfra can change your production data:
+Nothing you or an agent runs through anfra can change your data now. A write fails like this:
 
-```sh
-$ anfra query --lang sql -s supabase "insert into ecommerce.products values (999,'x','x',1,1,now())"
-error: 'run query: ERROR: cannot execute INSERT in a read-only transaction (SQLSTATE 25006)'
+```
+ERROR: cannot execute INSERT in a read-only transaction (SQLSTATE 25006)
 ```
 
-> **Production performance is your call.** Read-only protects your data, not your primary's
-> load. If you want analytics queries kept off production, connect Anfra to a
-> [Supabase read replica](https://supabase.com/docs/guides/platform/read-replicas) instead. Only
-> the host in `data_sources.yml` changes.
+Three things to settle before you move on:
 
-**`.anfra/data_sources.yml`** (git-ignored) ends up like this:
+**Row Level Security.** Most Supabase tables have RLS turned on, with policies written for your
+app's users. `anfra_reader` matches none of them, so it **sees zero rows, without any error**. For
+each table you want to analyse, add a read policy for anfra:
+
+```sql
+create policy anfra_reader_read on public.orders
+  for select to anfra_reader using (true);
+```
+
+**Personal data.** If a table holds emails, phone numbers or addresses that analysts don't need,
+grant only the columns they do need instead of the whole table:
+
+```sql
+revoke select on public.customers from anfra_reader;
+grant select (id, country, city, acquisition_channel, created_at) on public.customers to anfra_reader;
+```
+
+**Load on production.** A read-only login protects your data, not your database's CPU. To keep
+analytics queries off your primary, point anfra at a
+[read replica](https://supabase.com/docs/guides/platform/read-replicas) in the next step. Only the
+host changes.
+
+## Step 3: Connect (you write the file, the agent checks it)
+
+In the Supabase dashboard, click **Connect** and copy the **Session pooler** details:
+
+- **Use the pooler, not `db.<ref>.supabase.co`.** The direct host is IPv6-only, so many laptops
+  and CI runners can't reach it. The Session pooler works over IPv4.
+- **On the pooler, the username carries the project ref**: `anfra_reader.<project-ref>`.
+
+Replace the `warehouse` example in `.anfra/data_sources.yml` (it's git-ignored) with:
 
 ```yaml
 data_sources:
@@ -150,30 +127,45 @@ data_sources:
     type: postgresql
     connection:
       host: aws-0-<region>.pooler.supabase.com
-      port: 5432                       # a number, not a string
-      user: anfra_reader.<project-ref> # pooler format
-      password: <password>
+      port: 5432                       # a number, not "5432"
+      user: anfra_reader.<project-ref>
+      password: <a-strong-password>
       dbname: postgres                 # `dbname`, not `database`
     settings:
       require_ssl: true
 ```
 
-Check it:
+You type the password into that file yourself, so it doesn't go through the chat. anfra reads the
+file whenever it runs a query, and the agent doesn't need to open it.
 
-```sh
-anfra query --lang sql -s supabase 'select count(*) from ecommerce.orders'
-```
+Now hand over to the agent:
 
-## Step 3: Model the tables (AML)
+> **You:** Check that the `supabase` data source works, then list the tables in the `public`
+> schema with their row counts.
 
-A **model** maps one table and declares its fields. Here's `models/orders.model.aml`, shortened:
+You should get back a list of your tables with real counts. If a table you care about shows
+**0 rows** but has data in the Supabase table editor, it's RLS: go back to Step 2.
+
+## Step 4: Let the agent model your tables
+
+A **model** describes one table: its fields, their types, and its primary key. A **dataset**
+groups models, says how they join, and holds your metrics. You don't need to learn AML to get
+started. Tell the agent which tables matter:
+
+> **You:** Model the `customers`, `products`, `orders` and `order_items` tables from the
+> `supabase` data source, and put them in a dataset called `shop` with the right relationships.
+> Skip anything that looks internal or like a log table. Don't include email or phone columns.
+> Run `anfra validate` when you're done.
+
+The agent looks at the columns and sample values, writes one `models/<table>.model.aml` per table
+and a `datasets/shop.dataset.aml`, and validates them. A model looks like this:
 
 ```aml
 Model orders {
   type: 'table'
   label: 'Orders'
   data_source_name: 'supabase'
-  table_name: '"ecommerce"."orders"'
+  table_name: '"public"."orders"'
 
   dimension id {
     type: 'number'
@@ -194,36 +186,38 @@ Model orders {
 }
 ```
 
-Derived columns live in the model too, so nobody re-derives them differently.
-From `models/order_items.model.aml`:
+**Review it like a pull request.** `anfra validate` passing only means the files are well
+formed. Check these things yourself:
+
+- **Primary keys.** Every model has one, and it really is unique.
+- **Relationships point the right way.** `relationship(order_items.order_id > orders.id, true)`
+  means many order items to one order. A reversed relationship makes totals double count.
+- **Types.** Money columns are `number`, timestamps are `datetime`, and ids that are really codes
+  are `text`.
+- **Nothing sensitive slipped in.** If it did, ask the agent to remove it, and tighten the grant
+  from Step 2.
+
+If something's off, say so in plain words: *"order_items.product_id joins to products.id, not
+products.sku"*.
+
+## Step 5: Tell the agent what your metrics mean
+
+This is the step an agent can't do for you. It can see that `orders` has a `status` column. It
+can't know whether your finance team counts refunded orders as revenue. Give it the definitions:
+
+> **You:** Add these metrics to the `shop` dataset:
+> - **Net revenue**: quantity × (unit price − discount), only for `completed` and `shipped` orders.
+> - **AOV**: net revenue per completed or shipped order.
+> - **Gross profit**: net revenue minus quantity × product unit cost, same statuses.
+> - **Gross margin**: gross profit / net revenue.
+> - **Return rate**: share of orders with status `returned`.
+> - **Buyers**: distinct customers with at least one order.
+>
+> Ask me if anything is ambiguous.
+
+The agent writes them as metrics in the dataset, each built on the ones before it:
 
 ```aml
-  dimension net_amount {
-    label: 'Net Amount'
-    type: 'number'
-    description: 'quantity x (unit_price - discount)'
-    definition: @sql {{ #SOURCE.quantity }} * ({{ #SOURCE.unit_price }} - {{ #SOURCE.discount }});;
-  }
-```
-
-## Step 4: Define relationships and metrics once (the dataset)
-
-A **dataset** bundles models, says how they join, and defines the business metrics.
-From `datasets/shop.dataset.aml`:
-
-```aml
-Dataset shop {
-  label: 'Shop (Supabase)'
-  data_source_name: 'supabase'
-
-  models: [customers, products, orders, order_items]
-
-  relationships: [
-    relationship(order_items.order_id   > orders.id,    true),
-    relationship(order_items.product_id > products.id,  true),
-    relationship(orders.customer_id     > customers.id, true),
-  ]
-
   metric net_revenue {
     label: 'Net Revenue'
     type: 'number'
@@ -232,49 +226,35 @@ Dataset shop {
     format: '[$$]#,###0'
   }
 
-  metric cogs {
-    label: 'Cost of Goods Sold'
+  metric gross_margin {
+    label: 'Gross Margin %'
     type: 'number'
-    definition: @aql sum(order_items, order_items.quantity * products.unit_cost)
-                     | where(orders.status in ['completed', 'shipped']) ;;
+    definition: @aql safe_divide(gross_profit, net_revenue) ;;
+    format: '#,##0.0%'
   }
-
-  metric gross_profit { type: 'number'  definition: @aql net_revenue - cogs ;; }
-  metric gross_margin { type: 'number'  definition: @aql safe_divide(gross_profit, net_revenue) ;; }
-
-  metric aov {
-    label: 'AOV (Average Order Value)'
-    type: 'number'
-    definition: @aql safe_divide(net_revenue, total_orders | where(orders.status in ['completed', 'shipped'])) ;;
-  }
-  // total_orders, buyers, gross_sales, total_discount, units_sold, return_rate …
-}
 ```
 
-Metrics build on metrics (`gross_margin` → `gross_profit` → `net_revenue`, `cogs`), and the
-"completed and shipped only" rule lives in exactly one place.
+The "completed and shipped only" rule now lives in exactly one place. Each `description` is
+also what the next agent, or the next person, reads before using the metric, so ask for good
+ones.
 
-Validate the repo:
+> Write down definitions your team already argues about. Those are the metrics where a
+> semantic layer pays off first.
 
-```sh
-$ anfra validate
-diagnostics: []
-valid: true
+## Step 6: Ask questions, then check a number
 
-$ anfra show shop     # models, fields and metrics as AQL sees them
+Now ask in plain English:
+
+> **You:** Net revenue and gross margin by product category, highest revenue first.
+
+The agent writes AQL against the `shop` dataset and runs it:
+
 ```
-
-## Step 5: Ask questions in AQL
-
-AQL names *what* you want. Anfra works out the joins:
-
-```sh
-anfra query --dataset shop '
 explore {
   dimensions { category: products.category }
   measures   { net_revenue: net_revenue, gross_margin: gross_margin }
   sorts      { net_revenue desc }
-}'
+}
 ```
 
 | category | net_revenue | gross_margin |
@@ -283,154 +263,106 @@ explore {
 | Electronics | $468,331 | 54.8% |
 | Apparel | $335,390 | 51.8% |
 | Outdoor | $269,376 | 52.6% |
-| Accessories | $219,933 | 50.2% |
-| Fitness | $169,691 | 54.4% |
-| Home | $112,559 | 51.1% |
-| Stationery | $47,071 | 41.7% |
+| … | | |
 
-The query never mentions `order_items`, `unit_cost` or a join. Anfra sends Supabase plain
-Postgres SQL, which you can read:
+*(Results are from the demo store's data. Yours will be your own.)*
 
-```sql
-WITH "aql__t2" AS (
-  SELECT
-    "products"."category" AS "products->category",
-    SUM(("order_items"."quantity" * ("order_items"."unit_price" - "order_items"."discount"))) AS "sum_order_items->net_amount",
-    SUM(("order_items"."quantity" * "products"."unit_cost")) AS "sum_2c0c2fd4038a3b77"
-  FROM "ecommerce"."order_items" "order_items"
-    LEFT JOIN "ecommerce"."orders"   "orders"   ON "order_items"."order_id"   = "orders"."id"
-    LEFT JOIN "ecommerce"."products" "products" ON "order_items"."product_id" = "products"."id"
-  WHERE "orders"."status" IN ('completed', 'shipped')
-  GROUP BY 1
-)
-SELECT "products->category" AS "category",
-       "sum_order_items->net_amount" AS "net_revenue",
-       (("sum_order_items->net_amount" - "sum_2c0c2fd4038a3b77") * 1.0)
-         / NULLIF("sum_order_items->net_amount", 0) AS "gross_margin"
-FROM "aql__t2" "aql__t1"
-ORDER BY 2 DESC
-```
+The query never mentions `order_items`, `unit_cost` or a join. anfra works those out from the
+dataset and sends Supabase plain Postgres SQL. Ask *"show me the SQL"* if you want to read it.
 
-Another one, crossing three tables, with no join written:
+Questions that cross several tables work the same way:
 
-```sh
-anfra query --dataset shop '
-explore {
-  dimensions { channel: customers.acquisition_channel }
-  measures   { buyers: buyers, aov: aov, return_rate: return_rate }
-  sorts      { buyers desc }
-}'
-```
+> **You:** Which acquisition channel brings the most buyers, and what's their AOV and return rate?
 
-| channel | buyers | aov | return_rate |
-|---|---:|---:|---:|
-| Organic Search | 485 | $260.12 | 3.6% |
-| Paid Social | 340 | $257.35 | 4.4% |
-| Referral | 261 | $261.38 | 3.7% |
-| Email | 242 | $250.27 | 3.6% |
-| Direct | 237 | $266.29 | 3.2% |
+**Trust, but verify.** For the first few answers, have the agent check its own work outside the
+semantic layer:
 
-**Trust, but verify.** We checked the headline numbers with plain SQL against Supabase:
+> **You:** Check total net revenue with a plain SQL query straight against Supabase, without
+> using the dataset. Do the numbers match?
 
-```sql
-select sum(i.quantity * (i.unit_price - i.discount)) filter (where o.status in ('completed','shipped')) as net_revenue,
-       count(distinct o.id) as orders, count(distinct o.customer_id) as buyers
-from ecommerce.order_items i join ecommerce.orders o on o.id = i.order_id;
--- 2251299.80 | 9357 | 1565   ← identical to the AQL metrics
-```
+If they don't match, the difference usually points at a wrong relationship or metric. Fix the
+definition once, and every later answer is fixed too.
 
-## Step 6: A live dashboard with a Data App
+## Step 7: Build a dashboard
 
-`apps/shop_overview.html` is a single HTML file. It declares its queries with the Anfra SDK, and
-`anfra serve` runs them against Supabase:
+> **You:** Build a Data App called "Sales overview" on the `shop` dataset: KPI cards for net
+> revenue, orders, AOV and gross margin; net revenue over time with a week / month / quarter
+> switch; revenue by category and by acquisition channel; top 10 products. Add filters for
+> country and order date, and make clicking a category bar filter the rest of the page.
+
+The agent writes `apps/sales_overview.html`, one self-contained HTML file whose queries are AQL
+against your metrics. Open it:
 
 ```sh
 anfra serve
 # Data Apps  http://127.0.0.1:7878/apps/
 ```
 
-Open **Shop Overview (Supabase)**: five KPIs, revenue and gross profit over time (week / month /
-quarter), revenue by category and acquisition channel, and top products, with category, country
-and date filters. **Click a bar** to cross-filter the whole page.
+Then keep refining it in conversation: *"make the trend a stacked bar by channel"*, *"add a
+repeat-buyer KPI"*. The numbers on the page come from the same metric definitions as the answers
+in Step 6, so the dashboard and the chat can't disagree.
 
-The SDK wiring is short. Each query is AQL that uses the dataset's metrics:
-
-```js
-const app = Anfra.createApp({ title: 'Shop Overview' });
-
-const trend = app.createQuery('trend', {
-  dataset: 'shop',
-  aql: `explore {
-    dimensions { period: orders.created_at | month() }
-    measures   { net_revenue: net_revenue, gross_profit: gross_profit }
-    sorts      { period asc }
-  }`,
-});
-const byCategory = app.createQuery('byCategory', {
-  dataset: 'shop',
-  aql: `explore {
-    dimensions { category: products.category }
-    measures   { net_revenue: net_revenue }
-    sorts      { net_revenue desc }
-  }`,
-});
-
-// Controls are explicit: a filter only affects the queries you map it to
-const country = app.createFilter('country', { dataset: 'shop', field: 'customers.country' });
-app.mapControl(country, trend,      { field: 'customers.country' });
-app.mapControl(country, byCategory, { field: 'customers.country' });
-
-const grain = app.createDateDrill('grain', { default: 'month' });
-app.mapControl(grain, trend, { field: 'orders.created_at' });
-
-// Clicking a category filters the trend
-app.mapCrossFilter(byCategory, trend);
-
-app.subscribe(render);   // your rendering: ECharts here, anything you like
-app.execute();
-```
-
-Filtering to *Singapore* in the app shows **$107,098** net revenue, the same number as a direct
-SQL query with `where c.country = 'Singapore'`.
-
-## Step 7 (bonus): Let your AI agent use the same metrics
-
-`anfra serve` also exposes your repo as **MCP tools** at `http://127.0.0.1:7878/mcp`, and Anfra
-ships skills for coding agents:
+## Step 8: Commit and share
 
 ```sh
-anfra agent setup
+git add . && git commit -m "Semantic layer on our Supabase database"
 ```
 
-Now ask Claude Code / Cursor *"Which acquisition channel brings the highest AOV in 2026?"*. The
-agent writes AQL against `shop` and uses *your* definition of AOV, not one it made up, through a
-login that can't write.
+Your models, metrics and dashboards are now plain files under review. `.anfra/data_sources.yml`
+stays out of Git, and the committed `.anfra/data_sources.yml.example` tells a teammate what to
+fill in. When someone changes what "net revenue" means, it shows up as a diff in a pull request
+instead of someone quietly editing a query.
+
+Teammates clone the repo, add their own credentials, run `anfra agent setup`, and their agents
+use the same definitions.
 
 ---
 
-## Using your own Supabase tables
+## Prompting tips
 
-1. Skip the seed. Grant `anfra_reader` `SELECT` on your schema (often `public`).
-2. Write one `models/<table>.model.aml` per table, with a `primary_key`.
-3. Add a dataset with relationships and the metrics your team argues about.
-4. `anfra validate`, then check one number against SQL.
+- **Name the dataset**: *"using the `shop` dataset…"*. That keeps the agent on your definitions
+  instead of raw SQL.
+- **Give definitions, not just names.** "Active customer" means something different in every
+  company.
+- **Ask it to verify.** *"Check that against SQL"* costs one query and catches modelling mistakes
+  early.
+- **Ask to see the AQL** when a number surprises you. It's short enough to read.
+- **Fix the model, not the answer.** If an answer is wrong because a definition is wrong, ask the
+  agent to fix the metric, not to patch that one query.
 
-**Tip:** the Anfra skills make step 2 fast. Ask your agent to *"model the tables in the public
-schema of the supabase data source"* and review the AML it writes.
+## Doing it by hand
+
+Everything the agent does goes through the `anfra` CLI, which you can also use yourself:
+
+```sh
+anfra query --lang sql -s supabase 'select count(*) from public.orders'   # raw SQL, read-only
+anfra validate                                                            # check every model and dataset
+anfra show shop                                                           # fields and metrics as AQL sees them
+anfra query --dataset shop 'explore { measures { net_revenue: net_revenue } }'
+anfra serve                                                               # Data Apps and MCP at :7878
+```
+
+AML and AQL are documented at [amql.org/docs](https://amql.org/docs). For a complete, working set
+of models, metrics and a Data App, see the
+[demo repo](https://github.com/holistics/anfra-supabase-demo).
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
+| A table shows **0 rows** through anfra, but has data in Supabase | RLS: add a `for select to anfra_reader` policy on that table (Step 2). |
 | `could not translate host name db.<ref>.supabase.co` | That host is IPv6-only. Use the Session pooler host. |
 | `Tenant or user not found` | Wrong pooler region in the host, or the user is missing `.<project-ref>`. |
+| `password authentication failed` right after changing the password | The pooler caches credentials for a short while. Wait a minute and retry. |
 | `invalid config for dbtype` | `port` must be a number (`5432`), not `"5432"`. |
-| `permission denied for schema …` | `grant usage on schema … to anfra_reader` (re-run after dropping/recreating a schema). |
+| `permission denied for table …` / `for schema …` | Add `grant usage on schema …` / `grant select on …` for `anfra_reader`. Tables in a newly created schema need the grants again. |
 | `cannot execute … in a read-only transaction` | Working as intended: the role is read-only. |
+| The agent writes raw SQL instead of AQL | Check `anfra agent setup --check`, restart the agent, and name the dataset in your prompt. |
 
 ## Links
 
-- Demo repo: https://github.com/holistics/anfra-supabase-demo
-- Anfra docs: https://anfra.ai/docs
+- Demo repo with sample data: https://github.com/holistics/anfra-supabase-demo
+- anfra docs: https://anfra.ai/docs
 - AML & AQL docs: https://amql.org/docs
 - Supabase connection docs: https://supabase.com/docs/guides/database/connecting-to-postgres
+- Supabase Row Level Security: https://supabase.com/docs/guides/database/postgres/row-level-security
